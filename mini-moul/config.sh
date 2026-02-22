@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# ==============================================================================
-# ARQUIVO DE CONFIGURAÇÃO - MULINETCHII
-# ==============================================================================
+# CONFIGURATION FILE - MULINETCHII
+
 
 readonly GREEN=$'\033[38;5;84m'
 readonly RED=$'\033[38;5;197m'
@@ -17,6 +16,6 @@ readonly BOLD=$'\033[1m'
 readonly DEFAULT=$'\033[0m'
 readonly CHECKMARK=$'\xE2\x9C\x93'
 
-# Configurações do motor
+# Engine Algorithm Settings
 readonly VALGRIND_ASSIGNMENTS="C11 C12 C13"
 readonly TIMEOUT_SECONDS=10

@@ -1,100 +1,100 @@
 #!/bin/bash
 
 # ==============================================================================
-# MULINETI RAPÁ! - Orquestrador (Wrapper) Principal
+# MULINETI RAPÁ! - Main Orchestrator (Wrapper)
 # ==============================================================================
-# Este script é a porta de entrada. Ele detecta onde você está, prepara um 
-# ambiente isolado (temporário) e chama o motor de testes oficial.
-# A Norminette agora é avaliada silenciosamente dentro do test.sh por exercício.
+# This script is the entry point. It detects where you are, prepares an isolated
+# (temporary) environment, and calls the official test engine.
+# Norminette is now evaluated silently inside test.sh for each exercise.
 # ==============================================================================
 
-# ─── CONFIGURAÇÃO DE AMBIENTE ─────────────────────────────────────────────────
+# ─── ENVIRONMENT SETUP ─────────────────────────────────────────────────
 
-# Pega o diretório exato onde este script (.sh) está armazenado
+# Gets the exact directory where this script (.sh) is stored
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
-# Tenta carregar as configurações visuais e globais
+# Attempts to load visual and global configuration
 CONFIG_FILE="$SCRIPT_DIR/mini-moul/config.sh"
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 else
-    # Fallback básico caso o config.sh não seja encontrado
+    # Basic fallback in case config.sh is not found
     RED=$'\033[38;5;197m'
     DEFAULT=$'\033[0m'
-    echo -e "${RED}Erro Crítico: Arquivo config.sh não encontrado em ${CONFIG_FILE}${DEFAULT}"
+    echo -e "${RED}Critical Error: config.sh file not found at ${CONFIG_FILE}${DEFAULT}"
     exit 1
 fi
 
-# Variáveis Globais de Estado
+# Global State Variables
 ASSIGNMENT_NAME=""
 TMP_DIR="./mini-moul_tmp"
 
-# Ícones para interface
+# Icons for interface
 ICON_SEARCH="🔍"
 ICON_CLEAN="🧹"
 ICON_ALERT="🚨"
 ICON_RUN="🚀"
 
-# ─── FUNÇÕES DE LIMPEZA E SEGURANÇA ───────────────────────────────────────────
+# ─── CLEANUP AND SAFETY FUNCTIONS ───────────────────────────────────────────
 
-# Remove a pasta temporária de testes para não sujar o repositório do usuário
+# Removes the temporary test folder so the user's repository stays clean
 cleanup() {
     if [ -d "$TMP_DIR" ]; then
         rm -rf "$TMP_DIR"
     fi
 }
 
-# Captura o CTRL+C (SIGINT) para garantir que a pasta temporária seja apagada
-# mesmo se o usuário abortar o teste no meio do caminho
+# Captures CTRL+C (SIGINT) to ensure the temporary folder is deleted
+# even if the user aborts the test midway
 handle_sigint() {
-    printf "\n${RED}${ICON_ALERT} Teste abortado pelo usuário!${DEFAULT}\n"
-    printf "${GREY}${ICON_CLEAN} Limpando arquivos temporários...${DEFAULT}\n"
+    printf "\n${RED}${ICON_ALERT} Test aborted by the user!${DEFAULT}\n"
+    printf "${GREY}${ICON_CLEAN} Cleaning temporary files...${DEFAULT}\n"
     cleanup
-    printf "${GREEN}Ambiente limpo. Falou, valeu! 🤙${DEFAULT}\n"
+    printf "${GREEN}Environment clean. All good! 🤙${DEFAULT}\n"
     exit 1
 }
 
-# ─── FUNÇÕES DE VALIDAÇÃO E PREPARAÇÃO ────────────────────────────────────────
+# ─── VALIDATION AND PREPARATION FUNCTIONS ────────────────────────────────────────
 
-# Identifica qual módulo o usuário está tentando testar baseado na pasta atual
+# Identifies which module the user is trying to test based on the current folder
 detect_assignment() {
     ASSIGNMENT_NAME=$(basename "$(pwd)")
     
-    # Regex rigoroso: Aceita apenas pastas válidas da Piscine (C, Shell ou Rush)
+    # Strict regex: Accepts only valid Piscine folders (C, Shell, or Rush)
     if [[ $ASSIGNMENT_NAME =~ ^(C(0[0-9]|1[0-3])|Shell0[0-9]|Rush0[0-2])$ ]]; then
-        return 0 # Sucesso
+        return 0 # Success
     else
-        return 1 # Falha
+        return 1 # Fail
     fi
 }
 
-# ─── FLUXO PRINCIPAL ──────────────────────────────────────────────────────────
+# ─── MAIN FLOW ──────────────────────────────────────────────────────────
 
 main() {
-    # 1. Valida se o usuário está na pasta certa
+    # 1. Validates whether the user is in the correct folder
     if ! detect_assignment; then
-        printf "${RED}${ICON_ALERT} Diretório atual (%s) não é um exercício válido.${DEFAULT}\n" "$ASSIGNMENT_NAME"
-        printf "${GREY}Por favor, navegue até a pasta do módulo (ex: ${PURPLE}cd C01${GREY}) antes de rodar.${DEFAULT}\n"
+        printf "${RED}${ICON_ALERT} Current directory (%s) is not a valid exercise.${DEFAULT}\n" "$ASSIGNMENT_NAME"
+        printf "${GREY}Please navigate to the module folder (e.g.,${PURPLE}cd C01${GREY}) before running.${DEFAULT}\n"
         exit 1
     fi
 
-    # 2. Registra o gatilho de segurança (CTRL+C)
+    # 2. Registers the safety trigger (CTRL+C)
     trap handle_sigint SIGINT
 
-    # 3. Prepara o ambiente sandbox (área isolada para não conflitar com seus arquivos)
-    # Copia silenciosamente a pasta do motor para dentro do exercício atual
+    # 3. Prepares the sandbox environment (isolated area to avoid conflicts)
+    # Silently copies the engine folder into the current exercise
     cp -R "$SCRIPT_DIR/mini-moul" "$TMP_DIR"
 
-    # 4. Entra no sandbox e aciona o Motor de Testes
+    # 4. Enters the sandbox and triggers the Test Engine
     cd "$TMP_DIR" || exit 1
     
-    # Chama o script test.sh passando o nome do módulo (ex: "C01")
+    # Calls test.sh passing the module name (e.g., "C01")
     bash ./test.sh "$ASSIGNMENT_NAME"
     
-    # 5. Volta para a pasta do exercício e faz a limpeza
+    # 5. Returns to the exercise folder and performs cleanup
     cd .. || exit 1
     cleanup
 }
 
-# Inicia o script chamando a função principal
+# Starts the script by calling the main function
 main
