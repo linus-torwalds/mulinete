@@ -1,195 +1,300 @@
 #!/bin/bash
 
-source config.sh
+# ==============================================================================
+# MULINETCHII RAPÁ! - Motor de Testes 
+# ==============================================================================
 
-#utils
-index=0
-index2=0
-assignment_data=NULL
-test_data=NULL
-test_error=NULL
-test_name=NULL
+# Carrega as configurações de cores e variáveis globais
+# Tenta carregar do diretório atual ou do diretório do script
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+if [ -f "$SCRIPT_DIR/config.sh" ]; then
+    source "$SCRIPT_DIR/config.sh"
+else
+    echo "Erro: config.sh não encontrado!"
+    exit 1
+fi
 
-#variables
-checks=0
-passed=0
-marks=0
-questions=0
-dirname_found=0
-break_score=0
-score_false=0
-available_assignments=""
-result=""
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-dirname_found=0
+# ─── ESTADO GLOBAL ────────────────────────────────────────────────────────────
+# Variáveis para rastrear a pontuação e os testes
+QUESTIONS_TOTAL=0
+QUESTIONS_PASSED=0
+MODULE_FOUND=0
+GLOBAL_RESULTS=""
+START_TIME=0
 
-main()
-{
-    start_time=$(date +%s)
-    #print_collected_files
-    for dir in ./tests/* ; do
-        dirname="$(basename "$dir")"
-        available_assignments+="$dirname "
-        
-        if [ -d "$dir" ] && [ "$dirname" == "$1" ]; then
-            dirname_found=1
-            print_header
-            printf "${GREEN} Generating test for ${1}...\n${DEFAULT}"
-            space
-            dirname_found=1
-            index=0
-            
-            for assignment in $dir/*; do
-                questions=$((questions+1))
-                score_false=0
-                assignment_name="$(basename "$assignment")"
-                test_name="$(ls $assignment/*.c | head -n 1)"
-                test_name="$(basename "$test_name")"
-                
-                if cc -Wall -Werror -Wextra -o test1 $(ls $assignment/*.c | head -n 1); then
-                    rm test1
-                    checks=$((checks+1))
-                    passed=$((passed+1))
-                    
-                    if [ -d "$assignment" ]; then
-                        index2=0
-                        
-                        for test in $assignment/*.c; do
-                            ((index2++))
-                            checks=$((checks+1))
-                            
-                            if cc -o ${test%.c} $test 2> /dev/null; then
-                                
-                                if ./${test%.c} = 0; then
-                                    passed=$((passed+1))
-                                else
-                                    break_score=1
-                                    score_false=1
-                                fi
-                                rm ${test%.c}
-                            else
-                                printf "    ""${GREY}[$(($index2+1))] $test_error ${RED}FAILED${DEFAULT}\n"
-                            fi
-                        done
-                        print_test_result
-                        space
-                    else
-                        printf "${RED}    $assignment_name does not exist.${DEFAULT}\n"
-                    fi
-                else
-                    break_score=1
-                    checks=$((checks+1))
-                    printf "${RED}    $test_name cannot compile.${DEFAULT}\n"
-                    printf "${BG_RED}${BOLD} FAIL ${DEFAULT}${PURPLE} $assignment_name/${DEFAULT}$test_name\n"
-                    space
-                    
-                    if [ $index -gt 0 ]; then
-                        result+=", "
-                    fi
-                    result+="${RED}$assignment_name: KO${DEFAULT}"
+# Símbolos visuais para o terminal
+ICON_PASS="✅"
+ICON_FAIL="❌"
+ICON_LEAK="💧"
+ICON_TIME="⏳"
+ICON_WARN="⚠️"
+
+# ─── FUNÇÕES DE UI (INTERFACE DO USUÁRIO) ─────────────────────────────────────
+
+# Imprime uma linha em branco
+space() { echo ""; }
+
+# Verifica se o módulo atual é de Shell
+is_shell() { [[ "$1" =~ ^Shell ]]; }
+
+# Imprime o cabeçalho maneiro do script
+print_header() {
+    printf "${PINK}"
+    printf " ███▄           ███▄   ██  ██  ██       ██ ███▄    ██  ████████  ████████  ██ \n"
+    printf " ██▀██▄       ██▀ ██   ██  ██  ██       ██ ██▀██   ██  ██           ██     ██ \n"
+    printf " ██  ▀██▄   ██▀   ██   ██  ██  ██       ██ ██  ▀██ ██  ██████       ██     ██ \n"
+    printf " ██    ▀██▄██▀    ██   ██  ██  ██       ██ ██    ▀███  ██           ██     ██ \n"
+    printf " ██      ▀█▀      ██   ▀████▀  ████████ ██ ██     ▀██  ████████     ██     ██ \n"
+    
+    printf "${PURPLE}"
+    printf " ▒▒▒      ▒▒      ▒▒   ▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒ ▒▒ ▒▒      ▒▒  ▒▒▒▒▒▒▒▒     ▒▒     ▒▒ \n"
+    printf "${GREY}"
+    printf " ░░░      ░░      ░░   ░░░░░░  ░░░░░░░░ ░░ ░░      ░░  ░░░░░░░░     ░░     ░░ \n"
+    printf "          ░                ░        ░      ░                ░              ░  \n"
+
+    printf "\n 🤙 ${BLUE}MULINETCHII RAPÁ! ${DEFAULT}v2.0\n"
+    printf " 🌊 ${PINK}Papo reto: ${DEFAULT}Esquenta o código que a onda tá vindo.\n"
+    printf " 🚀 ${BLUE}Status: ${DEFAULT}No pique, sem neurose e já no esquema.\n"
+    space
+}
+
+# Imprime o rodapé com a nota final e o tempo de execução
+print_footer() {
+    printf "${PURPLE}------------------------------------------------------------${DEFAULT}\n"
+    space
+    
+    # Evita divisão por zero caso nenhum teste seja rodado
+    local total=${QUESTIONS_TOTAL:-1}
+    [ "$total" -eq 0 ] && total=1 
+    
+    local percent=$((100 * QUESTIONS_PASSED / total))
+    local end_time=$(date +%s)
+    local elapsed=$((end_time - START_TIME))
+
+    printf " Resumo:      %s\n" "$GLOBAL_RESULTS"
+    
+    if [ "$percent" -ge 50 ]; then
+        printf " Nota Final:  ${GREEN}%d/100${DEFAULT} ${ICON_PASS}\n" "$percent"
+        printf " Status:      ${BG_GREEN}${BLACK}${BOLD} APPROVED ${DEFAULT}\n"
+    else
+        printf " Nota Final:  ${RED}%d/100${DEFAULT} ${ICON_FAIL}\n" "$percent"
+        printf " Status:      ${BG_RED}${BOLD} FAILED ${DEFAULT}\n"
+    fi
+    
+    printf " Tempo:       ${GREY}%d segundos${DEFAULT}\n" "$elapsed"
+    printf "\n${BLUE} Mulineti não será atualizada. Nem se preocupe com o git pull.${DEFAULT}\n"
+    space
+}
+
+# Registra e exibe o resultado de um exercício individual
+# Uso: log_result <status (0=pass, 1=fail, 2=norm_error)> <nome_exercicio> <nome_arquivo_teste>
+log_result() {
+    local status=$1
+    local ex_name=$2
+    local test_name=$3
+
+    [ -n "$GLOBAL_RESULTS" ] && GLOBAL_RESULTS+=", "
+
+    if [ "$status" -eq 0 ]; then
+        GLOBAL_RESULTS+="${GREEN}${ex_name}: OK${DEFAULT}"
+        printf "${BG_GREEN}${BLACK}${BOLD} PASS ${DEFAULT} ${PURPLE}%s/${DEFAULT}%s\n" "$ex_name" "$test_name"
+        ((QUESTIONS_PASSED++))
+    elif [ "$status" -eq 2 ]; then
+        GLOBAL_RESULTS+="${RED}${ex_name}: NORM${DEFAULT}"
+        printf "${BG_RED}${BOLD} NORM ${DEFAULT} ${PURPLE}%s/${DEFAULT}%s ${GREY}(Lógica OK, mas falhou na Norma)${DEFAULT}\n" "$ex_name" "$test_name"
+    else
+        GLOBAL_RESULTS+="${RED}${ex_name}: KO${DEFAULT}"
+        printf "${BG_RED}${BOLD} FAIL ${DEFAULT} ${PURPLE}%s/${DEFAULT}%s\n" "$ex_name" "$test_name"
+    fi
+    space
+}
+
+# ─── FUNÇÕES UTILITÁRIAS DE EXECUÇÃO ──────────────────────────────────────────
+
+# Executa um binário C compilado, aplicando o Valgrind se o módulo exigir
+run_binary() {
+    local binary="$1"
+    local module="$2"
+
+    for vg_assign in $VALGRIND_ASSIGNMENTS; do
+        if [ "$module" == "$vg_assign" ]; then
+            if command -v valgrind &> /dev/null; then
+                if ! valgrind --leak-check=full --error-exitcode=1 --quiet "$binary" 2>/dev/null; then
+                    printf "    ${RED}${ICON_LEAK} Memory leak (vazamento) detectado em: $(basename "$binary")${DEFAULT}\n"
+                    return 1
                 fi
-                ((index++))
+                return 0
+            fi
+        fi
+    done
+    # Se não precisa de valgrind, roda normal
+    "$binary" 2>/dev/null
+}
+
+# ─── CORREDORES DE TESTE (RUNNERS) ────────────────────────────────────────────
+
+# Lida exclusivamente com exercícios em C (C00 a C13)
+run_c_exercise() {
+    local folder_path="$1"
+    local module="$2"
+    
+    local ex_name="$(basename "$folder_path")"
+    local c_files=$(ls "$folder_path"/*.c 2>/dev/null)
+    local test_name="$(basename "$(echo "$c_files" | head -n 1)")"
+    
+    local is_failed=0
+    local norm_failed=0
+
+    # 1. Validação de existência de arquivo
+    if [ -z "$c_files" ]; then
+        printf "    ${RED}${ICON_WARN} Nenhum arquivo .c encontrado para teste.${DEFAULT}\n"
+        log_result 1 "$ex_name" "N/A"
+        return
+    fi
+
+    # 2. Verificação da Norminette (Silenciosa no diretório real)
+    if command -v norminette &> /dev/null; then
+        if ! norminette "../$ex_name" &> /dev/null; then
+            norm_failed=1
+        fi
+    fi
+
+    # 3. Teste de Compilação Rígida
+    local first_c_file=$(echo "$c_files" | head -n 1)
+    if ! cc -Wall -Werror -Wextra -o test_bin "$first_c_file" 2>/dev/null; then
+        printf "    ${RED}${ICON_FAIL} Erro de compilação em %s (Flags: -Wall -Werror -Wextra).${DEFAULT}\n" "$test_name"
+        log_result 1 "$ex_name" "$test_name"
+        return
+    fi
+    rm -f test_bin # Limpa se compilou com sucesso
+
+    # 4. Execução dos testes internos da pasta
+    for test_file in "$folder_path"/*.[csh]; do
+        # Se o teste for um script .sh complementar
+        if [[ "$test_file" == *.sh ]]; then
+            if ! sh "$test_file" 2>/dev/null; then
+                is_failed=1
+            fi
+        # Se for um arquivo C
+        elif [[ "$test_file" == *.c ]]; then
+            local bin_name="${test_file%.c}"
+            if cc -Wall -Werror -Wextra -o "$bin_name" "$test_file" 2>/dev/null; then
+                if ! run_binary "./$bin_name" "$module"; then
+                    is_failed=1
+                fi
+                rm -f "$bin_name"
+            else
+                is_failed=1
+            fi
+        fi
+    done
+
+    # 5. Avaliação final do exercício (Aplica a punição da Norminette)
+    if [ "$is_failed" -eq 0 ] && [ "$norm_failed" -eq 1 ]; then
+        log_result 2 "$ex_name" "$test_name"
+    else
+        log_result "$is_failed" "$ex_name" "$test_name"
+    fi
+}
+
+# Lida exclusivamente com exercícios de Shell (Shell00 a Shell09)
+run_shell_exercise() {
+    local folder_path="$1"
+    local ex_name="$(basename "$folder_path")"
+    
+    # Pega o primeiro script .sh encontrado na pasta de testes
+    local test_scripts=$(ls "$folder_path"/*.sh 2>/dev/null)
+    local test_name="$(basename "$(echo "$test_scripts" | head -n 1)")"
+    
+    local is_failed=0
+
+    # 1. Valida se o dev preparou o script de teste
+    if [ -z "$test_scripts" ]; then
+        printf "    ${RED}${ICON_WARN} Nenhum script de teste (.sh) encontrado em %s.${DEFAULT}\n" "$ex_name"
+        log_result 1 "$ex_name" "N/A"
+        return
+    fi
+
+    # 2. Roda cada script de teste encontrado
+    for script in $test_scripts; do
+        # Atenção: O script roda esperando que retorne exit 0 (PASS)
+        if ! sh "$script" 2>/dev/null; then
+            is_failed=1
+        fi
+    done
+
+    # 3. Avaliação final do exercício
+    log_result "$is_failed" "$ex_name" "$test_name"
+}
+
+# ─── MOTOR PRINCIPAL ──────────────────────────────────────────────────────────
+
+# Função central que orquestra a varredura e testes
+run_all_tests() {
+    local target_module="$1"
+    local available_modules=""
+    
+    START_TIME=$(date +%s)
+
+    # Varre a pasta de testes para encontrar os módulos disponíveis
+    for dir in ./tests/*; do
+        [ ! -d "$dir" ] && continue
+        
+        local dir_name="$(basename "$dir")"
+        available_modules+="$dir_name "
+
+        # Encontrou a pasta de testes do módulo solicitado (ex: C01, Shell00)
+        if [ "$dir_name" == "$target_module" ]; then
+            MODULE_FOUND=1
+            print_header
+            printf "${GREEN} Preparando ambiente de testes para [ %s ]...${DEFAULT}\n" "$target_module"
+            space
+
+            # Itera sobre cada exercício (ex00, ex01...) dentro da pasta do módulo
+            for assignment_dir in "$dir"/*/; do
+                [ ! -d "$assignment_dir" ] && continue
+                
+                ((QUESTIONS_TOTAL++))
+
+                if is_shell "$target_module"; then
+                    run_shell_exercise "$assignment_dir"
+                else
+                    run_c_exercise "$assignment_dir" "$target_module"
+                fi
             done
             break
         fi
     done
-    
-    if [ $dirname_found = 0 ]; then
-        printf "${RED}Sorry. Tests for $1 isn't available yet. Consider contributing at Github.${DEFAULT}\n"
-        printf "Available assignment tests: ${PURPLE}$available_assignments${DEFAULT}\n"
+
+    # Tratamento de erro caso o módulo não possua testes programados
+    if [ "$MODULE_FOUND" -eq 0 ]; then
+        printf "\n${RED}${ICON_WARN} Testes para o módulo '%s' ainda não estão disponíveis/configurados.${DEFAULT}\n" "$target_module"
+        printf "${GREY}Disponíveis: ${PURPLE}%s${DEFAULT}\n\n" "$available_modules"
         exit 1
     fi
+
     print_footer
 }
 
-print_header()
-{
-    printf "${PINK}"
-    space
-    printf " ███▄ ▄███▓ ██▓ ███▄    █  ██▓\n"
-    printf "▓██▒▀█▀ ██▒▓██▒ ██ ▀█   █ ▓██▒\n"
-    printf "▓██    ▓██░▒██▒▓██  ▀█ ██▒▒██▒\n"
-    printf "▒██    ▒██ ░██░▓██▒  ▐▌██▒░██░\n"
-    printf "▒██▒   ░██▒░██░▒██░   ▓██░░██░\n"
-    printf "░ ▒░   ░  ░░▓  ░ ▒░   ▒ ▒ ░▓  \n"
-    printf "░  ░      ░ ▒ ░░ ░░   ░ ▒░ ▒ ░\n"
-    printf "░      ░    ▒ ░   ░   ░ ░  ▒ ░\n"
-    printf "       ░    ░           ░  ░  \n"
-    printf "${DEFAULT}"
-    printf "${BLUE}Mini moulinette ${DEFAULT}version 0.1.21 27 Feb 2023.\n"
-    space
-}
+# ─── INÍCIO DO SCRIPT ───────────────────────────────────────────
 
-print_collected_files()
-{
-    printf "Collected files:\n"
-    ls ../* | grep -v "../41test:*" | grep -v "../41test" | column
-}
-
-space()
-{
-    printf "\n"
-}
-
-print_test_result()
-{
-    if [ $index -gt 0 ]; then
-        result+=", "
-    fi
-    if [ $score_false = 0 ]; then
-        result+="${GREEN}$assignment_name: OK${DEFAULT}"
-        printf "${BG_GREEN}${BLACK}${BOLD} PASS ${DEFAULT}${PURPLE} $assignment_name/${DEFAULT}$test_name\n"
-    else
-        result+="${RED}$assignment_name: KO${DEFAULT}"
-        printf "${BG_RED}${BOLD} FAIL ${DEFAULT}${PURPLE} $assignment_name/${DEFAULT}$test_name\n"
-    fi
-    if [ $break_score = 0 ]; then
-        marks=$((marks+1))
-    fi
-}
-
-print_footer()
-{
-    printf "${PURPLE}-----------------------------------${DEFAULT}\n"
-    space
-    PERCENT=$((100 * marks / questions))
-    #printf "Total checks:  ""${GREEN}${passed} passed  ${DEFAULT} ""${checks} total"
-    printf "Result:        ${result}\n"
-    if [ $PERCENT -ge 50 ]; then
-        printf "Final score:   ""${GREEN}$(echo $PERCENT | bc)/100${DEFAULT}\n"
-        printf "Status:        ""${GREEN}passed${DEFAULT}\n"
-    else
-        printf "Final score:   ""${RED}$(echo $PERCENT | bc)/100${DEFAULT}\n"
-        printf "Status:        ""${RED}FAILED${DEFAULT}\n"
-    fi
-    end_time=$(date +%s)
-    elapsed_time=$(expr $end_time - $start_time)
-    printf "${GREY}Test completed. ${PINK}Total elapsed time: ${elapsed_time}s${DEFAULT}.\n"
-    printf "${BLUE}Mini moulinette is updated daily. Please remember to git pull today!\n${DEFAULT}"
-    space
-}
-
-check_dependency()
-{
-    if ! command -v jq &> /dev/null; then
-        printf "jq is not installed. To install:\n"
-        printf "  Ubuntu/Debian:\n"
-        printf "    sudo apt-get update\n"
-        printf "    sudo apt-get install jq\n"
-        printf "  macOS/Homebrew:\n"
-        printf "    brew install jq\n"
-    fi
-}
-
-#check_dependency
-if [ "${1}" = "" ]; then
-    printf "Please select an assignment. e.g. './test.sh C01'\n"
+# 1. Checa se o usuário passou um argumento
+if [ -z "$1" ]; then
+    printf "${RED}Erro: Você precisa selecionar um módulo.${DEFAULT}\n"
+    printf "Exemplo de uso: ${GREEN}./test.sh C01${DEFAULT}\n"
     exit 1
 fi
-if [[ "${1}" =~ ^C(0[0-9]|1[0-3])$ ]]; then
-    main "$@"
-    printf "$DEFAULT"
-    exit
+
+# 2. Filtro Rigoroso de Segurança (Evita injeção e protege o diretório)
+# Agora aceita C00 a C13, Shell00 a Shell01 e preparado para o Rush00 a Rush02
+if [[ "$1" =~ ^(C(0[0-9]|1[0-3])|Shell0[0-1]|Rush0[0-2])$ ]]; then
+    run_all_tests "$1"
+    
+    # 3. Limpeza do Terminal: Garante que o console volte a cor original
+    echo -e "${DEFAULT}"
+    exit 0
 else
-    printf "${RED}Invalid argument. Please select between C00 to C13${DEFAULT}\n"
+    printf "${RED}Argumento inválido: '%s'${DEFAULT}\n" "$1"
+    printf "Escolha entre: ${PURPLE}C00 a C13${DEFAULT}, ${PURPLE}Shell00 a Shell09${DEFAULT} ou ${PURPLE}Rush00 a Rush02${DEFAULT}.\n"
+    exit 1
 fi
